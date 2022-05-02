@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
 
 namespace BetterFileProtocol
@@ -48,7 +49,38 @@ namespace BetterFileProtocol
 
             }
         }
+        public static async Task Send(NetworkStream stream, string path, int chunkSize, IProgress<float> progress)
+        {
+            using (FileStream fs = File.OpenRead(path))
+            using (BufferedStream bs = new BufferedStream(fs))
+            {
+                int fileSize = (int)fs.Length;
+                float totalBytes = 0;
 
+                byte[] buffer = new byte[chunkSize];
+                string[] pathSplit = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? path.Split('\\') : path.Split('/');
+                string name = pathSplit[pathSplit.Length - 1];
+                byte[] nameBytes = Encoding.UTF8.GetBytes(name);
+
+                List<byte> extraInfo = new List<byte>();
+                extraInfo.AddRange(BitConverter.GetBytes(fileSize));
+                extraInfo.AddRange(BitConverter.GetBytes(nameBytes.Length));
+                extraInfo.AddRange(nameBytes);
+                extraInfo.AddRange(BitConverter.GetBytes(chunkSize));
+
+                stream.Write(extraInfo.ToArray(), 0, extraInfo.ToArray().Length);
+
+                int bytesRead;
+                while ((bytesRead = bs.Read(buffer, 0, chunkSize)) != 0)
+                {
+                    await stream.WriteAsync(buffer, 0, bytesRead);
+                    totalBytes += bytesRead;
+                    progress.Report(MathF.Round(totalBytes / fileSize, 2));
+                }
+
+
+            }
+        }
 
 
         /// <summary>
